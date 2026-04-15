@@ -312,3 +312,122 @@
   gap: 6px;
   font-size: 0.75rem;
 }
+
+/* ── Config Accordion Nav (Advanced Settings) ── */
+
+.config-accordion-nav {
+  margin-bottom: 16px;
+}
+
+.config-accordion-nav__back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  transition: opacity 0.15s;
+}
+
+.config-accordion-nav__back:hover {
+  opacity: 0.8;
+}
+
+.config-accordion-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.config-accordion-group__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--bg-surface);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.config-accordion-group__header:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.03));
+}
+
+.config-accordion-group__header--active {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.03));
+}
+
+.config-accordion-group__icon {
+  display: flex;
+  align-items: center;
+  color: var(--fg-muted, var(--fg));
+}
+
+.config-accordion-group__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.config-accordion-group__chevron {
+  margin-left: auto;
+  opacity: 0.4;
+  transition: transform 0.2s;
+}
+
+.config-accordion-group__chevron--open {
+  transform: rotate(180deg);
+}
+
+.config-accordion-group__items {
+  border-top: 1px solid var(--border);
+  padding: 4px 0;
+  background: var(--bg-layer);
+}
+
+.config-accordion-group__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px 8px 36px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--fg-muted, var(--fg));
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.config-accordion-group__item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.03));
+  color: var(--fg);
+}
+
+.config-accordion-group__item--active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.config-accordion-group__item-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+}
+
+.config-accordion-group__item-icon svg {
+  width: 14px;
+  height: 14px;
+}
