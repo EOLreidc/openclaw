@@ -136,6 +136,11 @@ import {
   type QuickSettingsApiKey,
 } from "./views/config-quick.ts";
 import { renderConfig, type ConfigProps } from "./views/config.ts";
+import {
+  renderCronQuickCreate,
+  createDefaultDraft,
+  draftToCronFormPatch,
+} from "./views/cron-quick-create.ts";
 import { renderDreaming } from "./views/dreaming.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
@@ -519,6 +524,44 @@ function extractQuickSettingsSecurity(state: AppViewState): {
     }
   }
   return { gatewayAuth, execPolicy, deviceAuth };
+}
+
+function renderCronQuickCreateForTab(
+  state: AppViewState,
+  requestHostUpdate: (() => void) | undefined,
+) {
+  return renderCronQuickCreate({
+    open: state.cronQuickCreateOpen,
+    step: state.cronQuickCreateStep,
+    draft: state.cronQuickCreateDraft ?? createDefaultDraft(),
+    onDraftChange: (patch) => {
+      state.cronQuickCreateDraft = {
+        ...(state.cronQuickCreateDraft ?? createDefaultDraft()),
+        ...patch,
+      };
+      requestHostUpdate?.();
+    },
+    onStepChange: (step) => {
+      state.cronQuickCreateStep = step;
+      requestHostUpdate?.();
+    },
+    onCreate: () => {
+      const draft = state.cronQuickCreateDraft ?? createDefaultDraft();
+      const formPatch = draftToCronFormPatch(draft);
+      // Apply the draft to the cron form and trigger add
+      state.cronForm = { ...state.cronForm, ...formPatch } as typeof state.cronForm;
+      state.cronQuickCreateOpen = false;
+      state.cronQuickCreateStep = "what";
+      state.cronQuickCreateDraft = null;
+      requestHostUpdate?.();
+    },
+    onCancel: () => {
+      state.cronQuickCreateOpen = false;
+      state.cronQuickCreateStep = "what";
+      state.cronQuickCreateDraft = null;
+      requestHostUpdate?.();
+    },
+  });
 }
 
 export function renderApp(state: AppViewState) {
@@ -1522,6 +1565,7 @@ export function renderApp(state: AppViewState) {
             )
           : nothing}
         ${renderUsageTab(state)}
+        ${state.tab === "cron" ? renderCronQuickCreateForTab(state, requestHostUpdate) : nothing}
         ${state.tab === "cron"
           ? lazyRender(lazyCron, (m) =>
               m.renderCron({
@@ -1578,6 +1622,12 @@ export function renderApp(state: AppViewState) {
                 onToggle: (job, enabled) => toggleCronJob(state, job, enabled),
                 onRun: (job, mode) => runCronJob(state, job, mode ?? "force"),
                 onRemove: (job) => removeCronJob(state, job),
+                onQuickCreate: () => {
+                  state.cronQuickCreateOpen = true;
+                  state.cronQuickCreateStep = "what";
+                  state.cronQuickCreateDraft = createDefaultDraft();
+                  requestHostUpdate?.();
+                },
                 onLoadRuns: async (jobId) => {
                   updateCronRunsFilter(state, { cronRunsScope: "job" });
                   await loadCronRuns(state, jobId);

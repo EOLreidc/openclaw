@@ -397,6 +397,11 @@ export class OpenClawApp extends LitElement {
   usageQueryDebounceTimer: number | null = null;
 
   @state() cronLoading = false;
+  @state() cronQuickCreateOpen = false;
+  @state() cronQuickCreateStep: import("./views/cron-quick-create.ts").CronQuickCreateStep = "what";
+  @state() cronQuickCreateDraft:
+    | import("./views/cron-quick-create.ts").CronQuickCreateDraft
+    | null = null;
   @state() cronJobsLoadingMore = false;
   @state() cronJobs: CronJob[] = [];
   @state() cronJobsTotal = 0;

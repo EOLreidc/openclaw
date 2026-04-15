@@ -275,6 +275,9 @@ export type AppViewState = {
 } & Pick<
   CronState,
   | "cronLoading"
+  | "cronQuickCreateOpen"
+  | "cronQuickCreateStep"
+  | "cronQuickCreateDraft"
   | "cronJobsLoadingMore"
   | "cronJobs"
   | "cronJobsTotal"
