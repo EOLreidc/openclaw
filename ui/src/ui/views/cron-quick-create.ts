@@ -206,7 +206,7 @@ function renderWhatStep(props: CronQuickCreateProps) {
     <div class="cqc-actions">
       <button class="btn" @click=${props.onCancel}>Cancel</button>
       <button
-        class="btn btn--primary"
+        class="btn primary"
         ?disabled=${!props.draft.prompt.trim()}
         @click=${() => props.onStepChange("when")}
       >
@@ -240,7 +240,7 @@ function renderWhenStep(props: CronQuickCreateProps) {
     </div>
     <div class="cqc-actions">
       <button class="btn" @click=${() => props.onStepChange("what")}>Back</button>
-      <button class="btn btn--primary" @click=${() => props.onStepChange("how")}>
+      <button class="btn primary" @click=${() => props.onStepChange("how")}>
         Next ${icons.chevronRight}
       </button>
     </div>
@@ -275,7 +275,7 @@ function renderHowStep(props: CronQuickCreateProps) {
     </div>
     <div class="cqc-actions">
       <button class="btn" @click=${() => props.onStepChange("when")}>Back</button>
-      <button class="btn btn--primary" @click=${props.onCreate}>Create ${icons.check}</button>
+      <button class="btn primary" @click=${props.onCreate}>Create ${icons.check}</button>
     </div>
   `;
 }
