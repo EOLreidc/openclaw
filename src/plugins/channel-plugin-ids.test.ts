@@ -384,6 +384,25 @@ describe("resolveGatewayStartupPluginIds", () => {
     });
   });
 
+  it("includes the implicitly selected active memory plugin in startup scope", () => {
+    const rawConfig = {} as OpenClawConfig;
+    const effectiveConfig = {
+      plugins: {
+        entries: {
+          "memory-core": {
+            enabled: true,
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    expectStartupPluginIdsCase({
+      config: effectiveConfig,
+      activationSourceConfig: rawConfig,
+      expected: ["demo-channel", "browser", "memory-core"],
+    });
+  });
+
   it("normalizes the raw memory slot id before startup filtering", () => {
     expectStartupPluginIdsCase({
       config: createStartupConfig({

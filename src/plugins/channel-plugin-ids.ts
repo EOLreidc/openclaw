@@ -13,6 +13,7 @@ import {
   normalizePluginId,
   normalizePluginsConfig,
   resolveEffectivePluginActivationState,
+  resolveMemorySlotDecision,
 } from "./config-state.js";
 import {
   hasExplicitManifestOwnerTrust,
@@ -176,6 +177,50 @@ function resolveGatewayStartupDreamingPluginIds(config: OpenClawConfig): Set<str
   return new Set(["memory-core", resolveMemoryDreamingPluginId(config)]);
 }
 
+function resolveSelectedMemoryStartupPluginId(params: {
+  config: OpenClawConfig;
+  activationSourceConfig?: OpenClawConfig;
+  workspaceDir?: string;
+  env: NodeJS.ProcessEnv;
+  pluginsConfig: ReturnType<typeof normalizePluginsConfig>;
+  activationSource: ReturnType<typeof createPluginActivationSource>;
+}): string | undefined {
+  const memorySlot = params.pluginsConfig.slots.memory;
+  let selectedMemoryPluginId: string | null = null;
+  for (const plugin of loadPluginManifestRegistry({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    env: params.env,
+  }).plugins) {
+    if (!hasKind(plugin.kind, "memory")) {
+      continue;
+    }
+    const activationState = resolveEffectivePluginActivationState({
+      id: plugin.id,
+      origin: plugin.origin,
+      config: params.pluginsConfig,
+      rootConfig: params.config,
+      enabledByDefault: plugin.enabledByDefault,
+      activationSource: params.activationSource,
+    });
+    if (!activationState.enabled) {
+      continue;
+    }
+    const memoryDecision = resolveMemorySlotDecision({
+      id: plugin.id,
+      kind: plugin.kind,
+      slot: memorySlot,
+      selectedId: selectedMemoryPluginId,
+    });
+    if (!memoryDecision.enabled || !memoryDecision.selected) {
+      continue;
+    }
+    selectedMemoryPluginId = plugin.id;
+    break;
+  }
+  return selectedMemoryPluginId ?? undefined;
+}
+
 function resolveExplicitMemorySlotStartupPluginId(config: OpenClawConfig): string | undefined {
   const configuredSlot = config.plugins?.slots?.memory?.trim();
   if (!configuredSlot || configuredSlot.toLowerCase() === "none") {
@@ -187,7 +232,7 @@ function resolveExplicitMemorySlotStartupPluginId(config: OpenClawConfig): strin
 function shouldConsiderForGatewayStartup(params: {
   plugin: PluginManifestRecord;
   startupDreamingPluginIds: ReadonlySet<string>;
-  explicitMemorySlotStartupPluginId?: string;
+  selectedMemoryStartupPluginId?: string;
 }): boolean {
   if (isGatewayStartupSidecar(params.plugin)) {
     return true;
@@ -198,7 +243,7 @@ function shouldConsiderForGatewayStartup(params: {
   if (params.startupDreamingPluginIds.has(params.plugin.id)) {
     return true;
   }
-  return params.explicitMemorySlotStartupPluginId === params.plugin.id;
+  return params.selectedMemoryStartupPluginId === params.plugin.id;
 }
 
 export function resolveChannelPluginIds(params: {
@@ -294,6 +339,16 @@ export function resolveGatewayStartupPluginIds(params: {
   const explicitMemorySlotStartupPluginId = resolveExplicitMemorySlotStartupPluginId(
     params.activationSourceConfig ?? params.config,
   );
+  const selectedMemoryStartupPluginId =
+    explicitMemorySlotStartupPluginId ??
+    resolveSelectedMemoryStartupPluginId({
+      config: params.config,
+      activationSourceConfig: params.activationSourceConfig,
+      workspaceDir: params.workspaceDir,
+      env: params.env,
+      pluginsConfig,
+      activationSource,
+    });
   return loadPluginManifestRegistry({
     config: params.config,
     workspaceDir: params.workspaceDir,
@@ -318,7 +373,7 @@ export function resolveGatewayStartupPluginIds(params: {
         !shouldConsiderForGatewayStartup({
           plugin,
           startupDreamingPluginIds,
-          explicitMemorySlotStartupPluginId,
+          selectedMemoryStartupPluginId,
         })
       ) {
         return false;
