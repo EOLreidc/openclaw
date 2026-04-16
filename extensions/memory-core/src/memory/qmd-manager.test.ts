@@ -26,7 +26,6 @@ const { withFileLockMock } = vi.hoisted(() => ({
   ),
 }));
 const MEMORY_EMBEDDING_PROVIDERS_KEY = Symbol.for("openclaw.memoryEmbeddingProviders");
-const MCPORTER_STATE_KEY = Symbol.for("openclaw.mcporterState");
 const QMD_EMBED_QUEUE_KEY = Symbol.for("openclaw.qmdEmbedQueueTail");
 
 interface MockChild extends EventEmitter {
@@ -81,6 +80,26 @@ function isMcporterCommand(cmd: unknown): boolean {
     return false;
   }
   return /(^|[\\/])mcporter(?:\.cmd)?$/i.test(cmd);
+}
+
+function getMcporterSelector(args: string[]): string {
+  if (args[0] !== "call") {
+    return "";
+  }
+  const directSelector = args[1];
+  if (directSelector && !directSelector.startsWith("--")) {
+    return directSelector;
+  }
+  const cwdIndex = args.indexOf("--cwd");
+  return cwdIndex >= 0 ? (args[cwdIndex + 2] ?? "") : "";
+}
+
+function expectMcporterQmdTool(args: string[], tool: string): void {
+  expect(getMcporterSelector(args)).toBe(tool);
+  expect(args).toContain("--stdio");
+  expect(args).toContain("--cwd");
+  expect(args).toContain("--args");
+  expect(args).toContain("mcp");
 }
 
 vi.mock("openclaw/plugin-sdk/memory-core-host-engine-foundation", async () => {
@@ -274,7 +293,6 @@ describe("QmdMemoryManager", () => {
     } else {
       process.env.Path = originalWindowsPath;
     }
-    delete (globalThis as Record<PropertyKey, unknown>)[MCPORTER_STATE_KEY];
     delete (globalThis as Record<PropertyKey, unknown>)[QMD_EMBED_QUEUE_KEY];
     delete (globalThis as Record<PropertyKey, unknown>)[MEMORY_EMBEDDING_PROVIDERS_KEY];
   });
@@ -2148,7 +2166,7 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
-  it("runs qmd searches via mcporter and warns when startDaemon=false", async () => {
+  it("runs qmd searches via ad-hoc mcporter stdio without starting the global daemon", async () => {
     cfg = {
       ...cfg,
       memory: {
@@ -2182,11 +2200,10 @@ describe("QmdMemoryManager", () => {
     const mcporterCalls = spawnMock.mock.calls.filter((call: unknown[]) =>
       isMcporterCommand(call[0]),
     );
-    expect(mcporterCalls.length).toBeGreaterThan(0);
-    expect(mcporterCalls.some((call: unknown[]) => (call[1] as string[])[0] === "daemon")).toBe(
-      false,
-    );
-    expect(logWarnMock).toHaveBeenCalledWith(expect.stringContaining("cold-start"));
+    expect(mcporterCalls).toHaveLength(1);
+    expect((mcporterCalls[0]?.[1] as string[])?.[0]).toBe("call");
+    expectMcporterQmdTool(mcporterCalls[0]?.[1] as string[], "query");
+    expect(logWarnMock).not.toHaveBeenCalledWith(expect.stringContaining("cold-start"));
 
     await manager.close();
   });
@@ -2210,7 +2227,7 @@ describe("QmdMemoryManager", () => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
         // Verify it calls qmd.query (v2) not qmd.deep_search (v1)
-        expect(args[1]).toBe("qmd.query");
+        expectMcporterQmdTool(args, "query");
         const callArgs = JSON.parse(args[args.indexOf("--args") + 1]);
         // Verify QMD 1.1+ searches array format
         expect(callArgs).toHaveProperty("searches");
@@ -2261,8 +2278,8 @@ describe("QmdMemoryManager", () => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
         callCount++;
-        const toolSelector = args[1];
-        if (toolSelector === "qmd.query") {
+        const toolSelector = getMcporterSelector(args);
+        if (toolSelector === "query") {
           // Simulate QMD <1.1 — "query" tool does not exist
           // The error message appears in stdout (mcporter wraps MCP errors in JSON output)
           queueMicrotask(() => {
@@ -2271,7 +2288,7 @@ describe("QmdMemoryManager", () => {
           });
           return child;
         }
-        if (toolSelector === "qmd.deep_search") {
+        if (toolSelector === "deep_search") {
           // v1 tool exists — verify v1 args format
           const callArgs = JSON.parse(args[args.indexOf("--args") + 1]);
           expect(callArgs).toHaveProperty("query");
@@ -2322,7 +2339,7 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        expect(args[1]).toBe("qmd.hybrid_search");
+        expectMcporterQmdTool(args, "hybrid_search");
         const callArgs = JSON.parse(args[args.indexOf("--args") + 1]);
         expect(callArgs).toMatchObject({
           query: "hello",
@@ -2364,7 +2381,7 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        expect(args[1]).toBe("qmd.query");
+        expectMcporterQmdTool(args, "query");
         emitAndClose(
           child,
           "stdout",
@@ -2438,7 +2455,7 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        expect(args[1]).toBe("qmd.query");
+        expectMcporterQmdTool(args, "query");
         emitAndClose(
           child,
           "stdout",
@@ -2511,7 +2528,7 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        expect(args[1]).toBe("qmd.query");
+        expectMcporterQmdTool(args, "query");
         const callArgs = JSON.parse(args[args.indexOf("--args") + 1]);
         expect(callArgs).toHaveProperty("searches", [{ type: "lex", query: "hello" }]);
         expect(callArgs).toHaveProperty("collections", ["workspace-main"]);
@@ -2554,9 +2571,9 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        const selector = args[1] ?? "";
+        const selector = getMcporterSelector(args);
         selectors.push(selector);
-        if (selector === "qmd.query") {
+        if (selector === "query") {
           queueMicrotask(() => {
             child.stderr.emit("data", "MCP error -32602: Tool query not found");
             child.closeWith(1);
@@ -2564,7 +2581,7 @@ describe("QmdMemoryManager", () => {
           return child;
         }
         const callArgs = JSON.parse(args[args.indexOf("--args") + 1]);
-        expect(selector).toBe("qmd.search");
+        expect(selector).toBe("search");
         expect(callArgs).toMatchObject({
           query: "hello",
           limit: expectedLimit,
@@ -2581,7 +2598,7 @@ describe("QmdMemoryManager", () => {
     expectedLimit = resolved.qmd?.limits.maxResults ?? 0;
     await manager.search("hello", { sessionKey: "agent:main:slack:dm:u123" });
 
-    expect(selectors).toEqual(["qmd.query", "qmd.search", "qmd.search"]);
+    expect(selectors).toEqual(["query", "search", "search"]);
 
     await manager.close();
   });
@@ -2611,7 +2628,7 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        selectors.push(args[1] ?? "");
+        selectors.push(getMcporterSelector(args));
         const callArgs = JSON.parse(args[args.indexOf("--args") + 1]);
         collections.push(String(callArgs.collection ?? ""));
         expect(callArgs).toMatchObject({
@@ -2632,7 +2649,7 @@ describe("QmdMemoryManager", () => {
     expectedLimit = resolved.qmd?.limits.maxResults ?? 0;
     await manager.search("hello", { sessionKey: "agent:main:slack:dm:u123" });
 
-    expect(selectors).toEqual(["qmd.hybrid_search", "qmd.hybrid_search"]);
+    expect(selectors).toEqual(["hybrid_search", "hybrid_search"]);
     expect(collections).toEqual(["workspace-a-main", "workspace-b-main"]);
 
     await manager.close();
@@ -2658,8 +2675,8 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        selectors.push(args[1] ?? "");
-        if (args[1] === "qmd.query" && firstQueryCall) {
+        selectors.push(getMcporterSelector(args));
+        if (getMcporterSelector(args) === "query" && firstQueryCall) {
           firstQueryCall = false;
           queueMicrotask(() => {
             child.stderr.emit("data", "backend unavailable");
@@ -2685,7 +2702,7 @@ describe("QmdMemoryManager", () => {
     await manager.search("hello again", { sessionKey: "agent:main:slack:dm:u123" });
 
     expect(selectors.length).toBeGreaterThanOrEqual(2);
-    expect(selectors.every((selector) => selector === "qmd.query")).toBe(true);
+    expect(selectors.every((selector) => selector === "query")).toBe(true);
     expect(logWarnMock).not.toHaveBeenCalledWith(
       expect.stringContaining("falling back to v1 tool names"),
     );
@@ -2713,8 +2730,8 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "call") {
-        selectors.push(args[1] ?? "");
-        if (args[1] === "qmd.query" && firstQueryCall) {
+        selectors.push(getMcporterSelector(args));
+        if (getMcporterSelector(args) === "query" && firstQueryCall) {
           firstQueryCall = false;
           return child;
         }
@@ -2754,7 +2771,7 @@ describe("QmdMemoryManager", () => {
 
     expect(runMcporterSpy).toHaveBeenCalled();
     expect(selectors.length).toBeGreaterThanOrEqual(1);
-    expect(selectors.every((selector) => selector === "qmd.query")).toBe(true);
+    expect(selectors.every((selector) => selector === "query")).toBe(true);
     expect(logWarnMock).not.toHaveBeenCalledWith(
       expect.stringContaining("falling back to v1 tool names"),
     );
@@ -2928,51 +2945,7 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
-  it("retries mcporter daemon start after a failure", async () => {
-    cfg = {
-      ...cfg,
-      memory: {
-        backend: "qmd",
-        qmd: {
-          includeDefaultMemory: false,
-          update: { interval: "0s", debounceMs: 60_000, onBoot: false },
-          paths: [{ path: workspaceDir, pattern: "**/*.md", name: "workspace" }],
-          mcporter: { enabled: true, serverName: "qmd", startDaemon: true },
-        },
-      },
-    } as OpenClawConfig;
-
-    let daemonAttempts = 0;
-    spawnMock.mockImplementation((cmd: string, args: string[]) => {
-      const child = createMockChild({ autoClose: false });
-      if (isMcporterCommand(cmd) && args[0] === "daemon") {
-        daemonAttempts += 1;
-        if (daemonAttempts === 1) {
-          emitAndClose(child, "stderr", "failed", 1);
-        } else {
-          emitAndClose(child, "stdout", "");
-        }
-        return child;
-      }
-      if (isMcporterCommand(cmd) && args[0] === "call") {
-        emitAndClose(child, "stdout", JSON.stringify({ results: [] }));
-        return child;
-      }
-      emitAndClose(child, "stdout", "[]");
-      return child;
-    });
-
-    const { manager } = await createManager();
-
-    await manager.search("one", { sessionKey: "agent:main:slack:dm:u123" });
-    await manager.search("two", { sessionKey: "agent:main:slack:dm:u123" });
-
-    expect(daemonAttempts).toBe(2);
-
-    await manager.close();
-  });
-
-  it("starts the mcporter daemon only once when enabled", async () => {
+  it("keeps mcporter QMD calls isolated from the global daemon even when startDaemon=true", async () => {
     cfg = {
       ...cfg,
       memory: {
@@ -2989,10 +2962,11 @@ describe("QmdMemoryManager", () => {
     spawnMock.mockImplementation((cmd: string, args: string[]) => {
       const child = createMockChild({ autoClose: false });
       if (isMcporterCommand(cmd) && args[0] === "daemon") {
-        emitAndClose(child, "stdout", "");
+        emitAndClose(child, "stderr", "daemon should not start", 1);
         return child;
       }
       if (isMcporterCommand(cmd) && args[0] === "call") {
+        expectMcporterQmdTool(args, "query");
         emitAndClose(child, "stdout", JSON.stringify({ results: [] }));
         return child;
       }
@@ -3008,7 +2982,7 @@ describe("QmdMemoryManager", () => {
     const daemonStarts = spawnMock.mock.calls.filter(
       (call: unknown[]) => isMcporterCommand(call[0]) && (call[1] as string[])[0] === "daemon",
     );
-    expect(daemonStarts).toHaveLength(1);
+    expect(daemonStarts).toHaveLength(0);
 
     await manager.close();
   });

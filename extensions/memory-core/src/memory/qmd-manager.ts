@@ -74,7 +74,6 @@ const QMD_EMBED_LOCK_RETRY_TEMPLATE = {
   maxTimeout: 10_000,
   randomize: true,
 } as const;
-const MCPORTER_STATE_KEY = Symbol.for("openclaw.mcporterState");
 const QMD_EMBED_QUEUE_KEY = Symbol.for("openclaw.qmdEmbedQueueTail");
 const IGNORED_MEMORY_WATCH_DIR_NAMES = new Set([
   ".git",
@@ -111,21 +110,9 @@ function buildQmdProcessPath(rawPath: string | undefined): string {
   return [...entries, nodeBinDir].join(path.delimiter);
 }
 
-type McporterState = {
-  coldStartWarned: boolean;
-  daemonStart: Promise<void> | null;
-};
-
 type QmdEmbedQueueState = {
   tail: Promise<void>;
 };
-
-function getMcporterState(): McporterState {
-  return resolveGlobalSingleton<McporterState>(MCPORTER_STATE_KEY, () => ({
-    coldStartWarned: false,
-    daemonStart: null,
-  }));
-}
 
 function getQmdEmbedQueueState(): QmdEmbedQueueState {
   return resolveGlobalSingleton<QmdEmbedQueueState>(QMD_EMBED_QUEUE_KEY, () => ({
@@ -216,6 +203,7 @@ type QmdMcporterSearchParams =
       limit: number;
       minScore: number;
       collection?: string;
+      collections?: string[];
       timeoutMs: number;
     }
   | {
@@ -227,6 +215,7 @@ type QmdMcporterSearchParams =
       limit: number;
       minScore: number;
       collection?: string;
+      collections?: string[];
       timeoutMs: number;
     };
 type QmdMcporterAcrossCollectionsParams =
@@ -1765,34 +1754,6 @@ export class QmdMemoryManager implements MemorySearchManager {
     return /(?:^|\n|:\s)(?:MCP error [^:\n]+:\s*)?Tool ['"]?query['"]? not found\b/i.test(detail);
   }
 
-  private async ensureMcporterDaemonStarted(mcporter: ResolvedQmdMcporterConfig): Promise<void> {
-    if (!mcporter.enabled) {
-      return;
-    }
-    const state = getMcporterState();
-    if (!mcporter.startDaemon) {
-      if (!state.coldStartWarned) {
-        state.coldStartWarned = true;
-        log.warn(
-          "mcporter qmd bridge enabled but startDaemon=false; each query may cold-start QMD MCP. Consider setting memory.qmd.mcporter.startDaemon=true to keep it warm.",
-        );
-      }
-      return;
-    }
-    if (!state.daemonStart) {
-      state.daemonStart = (async () => {
-        try {
-          await this.runMcporter(["daemon", "start"], { timeoutMs: 10_000 });
-        } catch (err) {
-          log.warn(`mcporter daemon start failed: ${String(err)}`);
-          // Allow future searches to retry daemon start on transient failures.
-          state.daemonStart = null;
-        }
-      })();
-    }
-    await state.daemonStart;
-  }
-
   private async runMcporter(
     args: string[],
     opts?: { timeoutMs?: number },
@@ -1817,7 +1778,10 @@ export class QmdMemoryManager implements MemorySearchManager {
   private async runQmdSearchViaMcporter(
     params: QmdMcporterSearchParams,
   ): Promise<QmdQueryResult[]> {
-    await this.ensureMcporterDaemonStarted(params.mcporter);
+    // Use an ad-hoc stdio QMD MCP server for each call so the spawned process
+    // inherits this manager's agent-scoped XDG state. The global configured
+    // mcporter daemon/server path is shared across agents and can silently bind
+    // searches to the wrong QMD index.
 
     // If the version is already known as v1 but we received a stale "query" tool name
     // (e.g. from runMcporterAcrossCollections iterating after the first collection
@@ -1827,8 +1791,35 @@ export class QmdMemoryManager implements MemorySearchManager {
         ? this.resolveQmdMcpTool(params.searchCommand ?? "query")
         : params.tool;
 
-    const selector = `${params.mcporter.serverName}.${effectiveTool}`;
     const useUnifiedQueryTool = effectiveTool === "query";
+    const requestedCollections = [
+      ...(params.collections ?? []),
+      ...(params.collection ? [params.collection] : []),
+    ].filter((collectionName) => collectionName.trim().length > 0);
+    if (!useUnifiedQueryTool && requestedCollections.length > 1) {
+      const bestByDocId = new Map<string, QmdQueryResult>();
+      for (const collectionName of requestedCollections) {
+        const parsed = await this.runQmdSearchViaMcporter({
+          ...params,
+          collection: collectionName,
+          collections: undefined,
+        });
+        for (const entry of parsed) {
+          if (typeof entry.docid !== "string" || !entry.docid.trim()) {
+            continue;
+          }
+          const prev = bestByDocId.get(entry.docid);
+          const prevScore =
+            typeof prev?.score === "number" ? prev.score : Number.NEGATIVE_INFINITY;
+          const nextScore =
+            typeof entry.score === "number" ? entry.score : Number.NEGATIVE_INFINITY;
+          if (!prev || nextScore > prevScore) {
+            bestByDocId.set(entry.docid, entry);
+          }
+        }
+      }
+      return [...bestByDocId.values()].toSorted((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    }
     const callArgs: Record<string, unknown> = useUnifiedQueryTool
       ? {
           // QMD 1.1+ "query" tool accepts typed sub-queries via `searches` array.
@@ -1844,20 +1835,31 @@ export class QmdMemoryManager implements MemorySearchManager {
           limit: params.limit,
           minScore: params.minScore,
         };
-    if (params.collection) {
+    if (requestedCollections.length > 0) {
       if (useUnifiedQueryTool) {
-        callArgs.collections = [params.collection];
+        callArgs.collections = requestedCollections;
       } else {
-        callArgs.collection = params.collection;
+        callArgs.collection = requestedCollections[0];
       }
     }
 
     let result: { stdout: string };
     try {
+      const qmdMcpInvocation = resolveCliSpawnInvocation({
+        command: this.qmd.command,
+        args: ["mcp"],
+        env: this.env,
+        packageName: "@tobilu/qmd",
+      });
       result = await this.runMcporter(
         [
           "call",
-          selector,
+          "--stdio",
+          qmdMcpInvocation.command,
+          ...qmdMcpInvocation.argv.flatMap((arg) => ["--stdio-arg", arg]),
+          "--cwd",
+          this.workspaceDir,
+          effectiveTool,
           "--args",
           JSON.stringify(callArgs),
           "--output",
@@ -2818,6 +2820,20 @@ export class QmdMemoryManager implements MemorySearchManager {
   private async runMcporterAcrossCollections(
     params: QmdMcporterAcrossCollectionsParams,
   ): Promise<QmdQueryResult[]> {
+    if (!params.explicitToolOverride && params.tool === "query" && params.collectionNames.length > 1) {
+      return await this.runQmdSearchViaMcporter({
+        mcporter: this.qmd.mcporter,
+        tool: params.tool,
+        searchCommand: params.searchCommand,
+        explicitToolOverride: false,
+        query: params.query,
+        limit: params.limit,
+        minScore: params.minScore,
+        collections: params.collectionNames,
+        timeoutMs: this.qmd.limits.timeoutMs,
+      });
+    }
+
     const bestByDocId = new Map<string, QmdQueryResult>();
     for (const collectionName of params.collectionNames) {
       const parsed = params.explicitToolOverride
