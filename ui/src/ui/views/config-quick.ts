@@ -385,7 +385,7 @@ function renderPresetsCard(props: QuickSettingsProps) {
   const activePreset = props.configObject ? detectActivePreset(props.configObject) : "personal";
 
   return html`
-    <div class="qs-card">
+    <div class="qs-card qs-card--span-all">
       ${renderCardHeader(icons.zap, "Profile")}
       <div class="qs-card__body qs-presets-grid">
         ${CONFIG_PRESETS.map(
