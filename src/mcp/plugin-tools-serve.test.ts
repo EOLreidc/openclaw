@@ -6,6 +6,7 @@ import {
 } from "../plugins/hook-runner-global.js";
 import { createMockPluginRegistry } from "../plugins/hooks.test-helpers.js";
 import { createPluginToolsMcpHandlers } from "./plugin-tools-handlers.js";
+import { resolvePluginToolsMcpContext } from "./plugin-tools-serve.js";
 
 const callGatewayTool = vi.hoisted(() => vi.fn());
 
@@ -20,6 +21,25 @@ afterEach(() => {
 });
 
 describe("plugin tools MCP server", () => {
+  it("derives trusted plugin-tool context from MCP bridge environment", () => {
+    expect(
+      resolvePluginToolsMcpContext({
+        env: {
+          OPENCLAW_MCP_SESSION_KEY: "agent:dev:discord:channel:1493959184428044320",
+          OPENCLAW_MCP_MESSAGE_CHANNEL: "discord",
+          OPENCLAW_MCP_ACCOUNT_ID: "default",
+          OPENCLAW_MCP_SENDER_IS_OWNER: "true",
+        },
+      }),
+    ).toEqual({
+      config: undefined,
+      sessionKey: "agent:dev:discord:channel:1493959184428044320",
+      messageChannel: "discord",
+      agentAccountId: "default",
+      senderIsOwner: true,
+    });
+  });
+
   it("lists registered plugin tools and serializes non-array tool content", async () => {
     const execute = vi.fn().mockResolvedValue({
       content: "Stored.",

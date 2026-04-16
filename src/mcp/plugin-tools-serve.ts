@@ -16,12 +16,33 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { routeLogsToStderr } from "../logging/console.js";
 import { resolvePluginTools } from "../plugins/tools.js";
+import {
+  normalizeOptionalLowercaseString,
+  normalizeOptionalString,
+} from "../shared/string-coerce.js";
+import { normalizeMessageChannel } from "../utils/message-channel.js";
 import { VERSION } from "../version.js";
 import { createPluginToolsMcpHandlers } from "./plugin-tools-handlers.js";
 
-function resolveTools(config: OpenClawConfig): AnyAgentTool[] {
+export function resolvePluginToolsMcpContext(params: {
+  config?: OpenClawConfig;
+  env?: NodeJS.ProcessEnv;
+}) {
+  const env = params.env ?? process.env;
+  const senderIsOwnerRaw = normalizeOptionalLowercaseString(env.OPENCLAW_MCP_SENDER_IS_OWNER);
+  return {
+    config: params.config,
+    sessionKey: normalizeOptionalString(env.OPENCLAW_MCP_SESSION_KEY),
+    messageChannel: normalizeMessageChannel(env.OPENCLAW_MCP_MESSAGE_CHANNEL) ?? undefined,
+    agentAccountId: normalizeOptionalString(env.OPENCLAW_MCP_ACCOUNT_ID),
+    senderIsOwner:
+      senderIsOwnerRaw === "true" ? true : senderIsOwnerRaw === "false" ? false : undefined,
+  };
+}
+
+function resolveTools(config: OpenClawConfig, env?: NodeJS.ProcessEnv): AnyAgentTool[] {
   return resolvePluginTools({
-    context: { config },
+    context: resolvePluginToolsMcpContext({ config, env }),
     suppressNameConflicts: true,
   });
 }
@@ -30,10 +51,11 @@ export function createPluginToolsMcpServer(
   params: {
     config?: OpenClawConfig;
     tools?: AnyAgentTool[];
+    env?: NodeJS.ProcessEnv;
   } = {},
 ): Server {
   const cfg = params.config ?? loadConfig();
-  const tools = params.tools ?? resolveTools(cfg);
+  const tools = params.tools ?? resolveTools(cfg, params.env);
   const handlers = createPluginToolsMcpHandlers(tools);
 
   const server = new Server(
@@ -55,8 +77,8 @@ export async function servePluginToolsMcp(): Promise<void> {
   routeLogsToStderr();
 
   const config = loadConfig();
-  const tools = resolveTools(config);
-  const server = createPluginToolsMcpServer({ config, tools });
+  const tools = resolveTools(config, process.env);
+  const server = createPluginToolsMcpServer({ config, tools, env: process.env });
   if (tools.length === 0) {
     process.stderr.write("plugin-tools-serve: no plugin tools found\n");
   }
