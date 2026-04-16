@@ -491,7 +491,7 @@ function extractQuickSettingsSecurity(state: AppViewState): {
   let gatewayAuth = "unknown";
   if (auth && typeof auth === "object") {
     const authObj = auth as Record<string, unknown>;
-    if (authObj.password || authObj.gatewayPassword) {
+  return channels.filter((c) => c.connected);
       gatewayAuth = "password";
     } else if (authObj.jwt) {
       gatewayAuth = "jwt";
