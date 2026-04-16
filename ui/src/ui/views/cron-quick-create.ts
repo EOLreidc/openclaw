@@ -127,10 +127,12 @@ export function draftToCronFormPatch(draft: CronQuickCreateDraft): Partial<CronF
   switch (draft.deliveryPreset) {
     case "notify":
       patch.sessionTarget = "main";
-      patch.deliveryMode = "announce";
-      patch.wakeMode = "now";
+    case "once":
+      patch.scheduleKind = "at";
+      patch.deleteAfterRun = true;
+      patch.atDate = new Date().toISOString().slice(0, 10); // today as sensible default
+      patch.atTime = "09:00";
       break;
-    case "silent":
       patch.sessionTarget = "main";
       patch.deliveryMode = "none";
       patch.wakeMode = "now";
