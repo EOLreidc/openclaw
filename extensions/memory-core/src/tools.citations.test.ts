@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearMemoryPluginState,
   registerMemoryCorpusSupplement,
@@ -15,6 +15,21 @@ import {
   setMemoryWorkspaceDir,
   type MemoryReadParams,
 } from "./memory-tool-manager-mock.js";
+
+const memoryWikiFallbackMocks = vi.hoisted(() => ({
+  resolveMemoryWikiConfig: vi.fn((config) => config),
+  searchMemoryWiki: vi.fn(async () => []),
+  getMemoryWikiPage: vi.fn(async () => null),
+}));
+
+vi.mock("../../memory-wiki/src/config.js", () => ({
+  resolveMemoryWikiConfig: memoryWikiFallbackMocks.resolveMemoryWikiConfig,
+}));
+
+vi.mock("../../memory-wiki/src/query.js", () => ({
+  searchMemoryWiki: memoryWikiFallbackMocks.searchMemoryWiki,
+  getMemoryWikiPage: memoryWikiFallbackMocks.getMemoryWikiPage,
+}));
 import { createMemoryCoreTestHarness } from "./test-helpers.js";
 import {
   asOpenClawConfig,
@@ -67,6 +82,12 @@ beforeEach(() => {
       lines: params.lines ?? 120,
     }),
   });
+  memoryWikiFallbackMocks.resolveMemoryWikiConfig.mockClear();
+  memoryWikiFallbackMocks.resolveMemoryWikiConfig.mockImplementation((config) => config);
+  memoryWikiFallbackMocks.searchMemoryWiki.mockReset();
+  memoryWikiFallbackMocks.searchMemoryWiki.mockResolvedValue([]);
+  memoryWikiFallbackMocks.getMemoryWikiPage.mockReset();
+  memoryWikiFallbackMocks.getMemoryWikiPage.mockResolvedValue(null);
 });
 
 describe("memory search citations", () => {
@@ -342,5 +363,77 @@ describe("memory tools", () => {
       fromLine: 3,
       lineCount: 5,
     });
+  });
+
+  it("falls back to direct wiki search when no corpus supplements are registered", async () => {
+    memoryWikiFallbackMocks.searchMemoryWiki.mockResolvedValue([
+      {
+        corpus: "wiki",
+        path: "sources/alpha.md",
+        title: "Alpha Source",
+        kind: "source",
+        score: 6,
+        snippet: "Alpha from fallback",
+      },
+    ]);
+
+    const tool = createMemorySearchToolOrThrow({
+      config: asOpenClawConfig({
+        agents: { list: [{ id: "main", default: true }] },
+        plugins: { entries: { "memory-wiki": { enabled: true, config: {} } } },
+      }),
+    });
+    const result = await tool.execute("call_wiki_fallback", { query: "alpha", corpus: "wiki" });
+
+    expect(result.details).toMatchObject({
+      results: [
+        {
+          corpus: "wiki",
+          path: "sources/alpha.md",
+          title: "Alpha Source",
+          kind: "source",
+          score: 6,
+          snippet: "Alpha from fallback",
+        },
+      ],
+    });
+    expect(memoryWikiFallbackMocks.searchMemoryWiki).toHaveBeenCalledTimes(1);
+    expect(getMemorySearchManagerMockCalls()).toBe(0);
+  });
+
+  it("falls back to direct wiki get when no corpus supplements are registered", async () => {
+    memoryWikiFallbackMocks.getMemoryWikiPage.mockResolvedValue({
+      corpus: "wiki",
+      path: "sources/alpha.md",
+      title: "Alpha Source",
+      kind: "source",
+      content: "Alpha fallback body",
+      fromLine: 2,
+      lineCount: 4,
+    });
+
+    const tool = createMemoryGetToolOrThrow(
+      asOpenClawConfig({
+        agents: { list: [{ id: "main", default: true }] },
+        plugins: { entries: { "memory-wiki": { enabled: true, config: {} } } },
+      }),
+    );
+    const result = await tool.execute("call_get_wiki_fallback", {
+      path: "sources/alpha.md",
+      from: 2,
+      lines: 4,
+      corpus: "wiki",
+    });
+
+    expect(result.details).toEqual({
+      corpus: "wiki",
+      path: "sources/alpha.md",
+      title: "Alpha Source",
+      kind: "source",
+      text: "Alpha fallback body",
+      fromLine: 2,
+      lineCount: 4,
+    });
+    expect(memoryWikiFallbackMocks.getMemoryWikiPage).toHaveBeenCalledTimes(1);
   });
 });
