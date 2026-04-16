@@ -163,9 +163,9 @@ describe("syncMemoryWikiBridgeSources", () => {
     });
   });
 
-  it("returns a no-op result when bridge mode is enabled without exported memory artifacts", async () => {
+  it("falls back to direct memory-core artifact discovery when no public artifacts are registered", async () => {
     const workspaceDir = await createBridgeWorkspace("no-memory-core");
-    const { config } = await createVault({
+    const { rootDir: vaultDir, config } = await createVault({
       rootDir: nextCaseRoot("no-memory-core-vault"),
       config: {
         vaultMode: "bridge",
@@ -188,14 +188,16 @@ describe("syncMemoryWikiBridgeSources", () => {
     const result = await syncMemoryWikiBridgeSources({ config, appConfig });
 
     expect(result).toMatchObject({
-      importedCount: 0,
+      importedCount: 1,
       updatedCount: 0,
       skippedCount: 0,
       removedCount: 0,
-      artifactCount: 0,
-      workspaces: 0,
-      pagePaths: [],
+      artifactCount: 1,
+      workspaces: 1,
     });
+    expect(result.pagePaths).toHaveLength(1);
+    const sourcePages = await fs.readdir(path.join(vaultDir, "sources"));
+    expect(sourcePages.some((name) => name.startsWith("bridge-"))).toBe(true);
   });
 
   it("imports the public memory event journal when followMemoryEvents is enabled", async () => {
