@@ -4049,6 +4049,66 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
+  it("preserves canonical workspace file casing in qmd search results so search->read roundtrips", async () => {
+    await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "# Durable Memory\n\nremember this\n", "utf8");
+    cfg = {
+      agents: {
+        list: [{ id: agentId, default: true, workspace: workspaceDir }],
+      },
+      memory: {
+        backend: "qmd",
+        qmd: {
+          includeDefaultMemory: true,
+          sessions: { enabled: false },
+          update: { interval: "0s", debounceMs: 60_000, onBoot: false },
+          paths: [],
+        },
+      },
+    } as OpenClawConfig;
+
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "search") {
+        const child = createMockChild({ autoClose: false });
+        emitAndClose(
+          child,
+          "stdout",
+          JSON.stringify([
+            {
+              file: "qmd://memory-root-main/memory.md",
+              score: 1,
+              snippet: "@@ -3,1\nremember this",
+            },
+          ]),
+        );
+        return child;
+      }
+      return createMockChild();
+    });
+
+    const { manager } = await createManager({ mode: "full" });
+    const results = await manager.search("remember", {
+      sessionKey: "agent:main:discord:channel:test",
+    });
+
+    expect(results).toEqual([
+      {
+        path: "MEMORY.md",
+        startLine: 3,
+        endLine: 3,
+        score: 1,
+        snippet: "@@ -3,1\nremember this",
+        source: "memory",
+      },
+    ]);
+
+    await expect(manager.readFile({ relPath: results[0].path })).resolves.toEqual({
+      path: "MEMORY.md",
+      text: "# Durable Memory\n\nremember this\n",
+    });
+
+    await manager.close();
+  });
+
   it("preserves multi-collection qmd search hits when results only include file URIs", async () => {
     cfg = {
       ...cfg,

@@ -2522,9 +2522,42 @@ export class QmdMemoryManager implements MemorySearchManager {
       if (normalized === "qmd" || normalized.startsWith("qmd/")) {
         return `qmd/${collection}/${sanitized}`;
       }
-      return normalized;
+      return this.resolveWorkspaceDisplayPath(absPath, normalized);
     }
     return `qmd/${collection}/${sanitized}`;
+  }
+
+  private resolveWorkspaceDisplayPath(absPath: string, fallback: string): string {
+    try {
+      const relative = path.relative(this.workspaceDir, absPath);
+      if (!this.isInsideWorkspace(relative)) {
+        return fallback;
+      }
+      const segments = relative.split(path.sep).filter(Boolean);
+      if (segments.length === 0) {
+        return fallback;
+      }
+      let currentDir = this.workspaceDir;
+      const resolvedSegments: string[] = [];
+      for (const segment of segments) {
+        const entries = fsSync.readdirSync(currentDir, { withFileTypes: true });
+        const exact = entries.find((entry) => entry.name === segment);
+        const insensitiveMatches = exact
+          ? [exact]
+          : entries.filter(
+              (entry) => normalizeLowercaseStringOrEmpty(entry.name) === segment.toLowerCase(),
+            );
+        const nextName =
+          exact?.name ??
+          (insensitiveMatches.length === 1 ? insensitiveMatches[0]?.name : undefined) ??
+          segment;
+        resolvedSegments.push(nextName);
+        currentDir = path.join(currentDir, nextName);
+      }
+      return resolvedSegments.join("/");
+    } catch {
+      return fallback;
+    }
   }
 
   private isInsideWorkspace(relativePath: string): boolean {
