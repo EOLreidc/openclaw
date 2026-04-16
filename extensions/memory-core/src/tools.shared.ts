@@ -15,11 +15,102 @@ type MemorySearchManagerResult = Awaited<
   ReturnType<(typeof import("./memory/index.js"))["getMemorySearchManager"]>
 >;
 
+type MemoryWikiFallbackRuntime = {
+  resolveMemoryWikiConfig: typeof import("../../memory-wiki/src/config.js")["resolveMemoryWikiConfig"];
+  searchMemoryWiki: typeof import("../../memory-wiki/src/query.js")["searchMemoryWiki"];
+  getMemoryWikiPage: typeof import("../../memory-wiki/src/query.js")["getMemoryWikiPage"];
+};
+
 let memoryToolRuntimePromise: Promise<MemoryToolRuntime> | null = null;
+let memoryWikiFallbackRuntimePromise: Promise<MemoryWikiFallbackRuntime> | null = null;
 
 export async function loadMemoryToolRuntime(): Promise<MemoryToolRuntime> {
   memoryToolRuntimePromise ??= import("./tools.runtime.js");
   return await memoryToolRuntimePromise;
+}
+
+async function loadMemoryWikiFallbackRuntime(): Promise<MemoryWikiFallbackRuntime> {
+  memoryWikiFallbackRuntimePromise ??= Promise.all([
+    import("../../memory-wiki/src/config.js"),
+    import("../../memory-wiki/src/query.js"),
+  ]).then(([configModule, queryModule]) => ({
+    resolveMemoryWikiConfig: configModule.resolveMemoryWikiConfig,
+    searchMemoryWiki: queryModule.searchMemoryWiki,
+    getMemoryWikiPage: queryModule.getMemoryWikiPage,
+  }));
+  return await memoryWikiFallbackRuntimePromise;
+}
+
+function resolveMemoryWikiEntryConfig(cfg: OpenClawConfig): Record<string, unknown> | undefined {
+  const entry = cfg.plugins?.entries?.["memory-wiki"];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return undefined;
+  }
+  if (entry.enabled === false) {
+    return undefined;
+  }
+  const config = entry.config;
+  return config && typeof config === "object" && !Array.isArray(config)
+    ? (config as Record<string, unknown>)
+    : undefined;
+}
+
+async function searchMemoryWikiFallback(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
+  query: string;
+  maxResults?: number;
+  agentSessionKey?: string;
+  corpus?: "memory" | "wiki" | "all";
+}): Promise<MemoryCorpusSearchResult[]> {
+  if (params.corpus === "memory") {
+    return [];
+  }
+  const wikiConfig = resolveMemoryWikiEntryConfig(params.cfg);
+  if (!wikiConfig) {
+    return [];
+  }
+  const { resolveMemoryWikiConfig, searchMemoryWiki } = await loadMemoryWikiFallbackRuntime();
+  return await searchMemoryWiki({
+    config: resolveMemoryWikiConfig(wikiConfig),
+    appConfig: params.cfg,
+    agentId: params.agentId,
+    agentSessionKey: params.agentSessionKey,
+    query: params.query,
+    maxResults: params.maxResults,
+    searchBackend: "local",
+    searchCorpus: "wiki",
+  });
+}
+
+async function getMemoryWikiFallback(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
+  lookup: string;
+  fromLine?: number;
+  lineCount?: number;
+  agentSessionKey?: string;
+  corpus?: "memory" | "wiki" | "all";
+}): Promise<MemoryCorpusGetResult | null> {
+  if (params.corpus === "memory") {
+    return null;
+  }
+  const wikiConfig = resolveMemoryWikiEntryConfig(params.cfg);
+  if (!wikiConfig) {
+    return null;
+  }
+  const { resolveMemoryWikiConfig, getMemoryWikiPage } = await loadMemoryWikiFallbackRuntime();
+  return await getMemoryWikiPage({
+    config: resolveMemoryWikiConfig(wikiConfig),
+    appConfig: params.cfg,
+    agentId: params.agentId,
+    agentSessionKey: params.agentSessionKey,
+    lookup: params.lookup,
+    fromLine: params.fromLine,
+    lineCount: params.lineCount,
+    searchBackend: "local",
+    searchCorpus: "wiki",
+  });
 }
 
 export const MemorySearchSchema = Type.Object({
@@ -142,6 +233,8 @@ export function buildMemorySearchUnavailableResult(error: string | undefined) {
 }
 
 export async function searchMemoryCorpusSupplements(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
   query: string;
   maxResults?: number;
   agentSessionKey?: string;
@@ -152,14 +245,14 @@ export async function searchMemoryCorpusSupplements(params: {
   }
   const supplements = listMemoryCorpusSupplements();
   if (supplements.length === 0) {
-    return [];
+    return await searchMemoryWikiFallback(params);
   }
   const results = (
     await Promise.all(
       supplements.map(async (registration) => await registration.supplement.search(params)),
     )
   ).flat();
-  return results
+  const sorted = results
     .toSorted((left, right) => {
       if (left.score !== right.score) {
         return right.score - left.score;
@@ -167,9 +260,15 @@ export async function searchMemoryCorpusSupplements(params: {
       return left.path.localeCompare(right.path);
     })
     .slice(0, Math.max(1, params.maxResults ?? 10));
+  if (sorted.length > 0) {
+    return sorted;
+  }
+  return await searchMemoryWikiFallback(params);
 }
 
 export async function getMemoryCorpusSupplementResult(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
   lookup: string;
   fromLine?: number;
   lineCount?: number;
@@ -185,5 +284,5 @@ export async function getMemoryCorpusSupplementResult(params: {
       return result;
     }
   }
-  return null;
+  return await getMemoryWikiFallback(params);
 }
