@@ -7,11 +7,7 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveOpenClawAgentDir } from "../agents/agent-paths.js";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
-import {
-  ensureAuthProfileStore,
-  saveAuthProfileStore,
-  type AuthProfileStore,
-} from "../agents/auth-profiles.js";
+import type { AuthProfileStore } from "../agents/auth-profiles.js";
 import {
   collectAnthropicApiKeys,
   isAnthropicBillingError,
@@ -34,8 +30,7 @@ import { shouldSuppressBuiltInModel } from "../agents/model-suppression.js";
 import { ensureOpenClawModelsJson } from "../agents/models-config.js";
 import { isRateLimitErrorMessage } from "../agents/pi-embedded-helpers/errors.js";
 import { discoverAuthStorage, discoverModels } from "../agents/pi-model-discovery.js";
-import { clearRuntimeConfigSnapshot, loadConfig, type OpenClawConfig } from "../config/config.js";
-import type { ModelsConfig, ModelProviderConfig } from "../config/types.js";
+import type { ModelsConfig, ModelProviderConfig, OpenClawConfig } from "../config/types.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { normalizeGoogleModelId } from "../plugin-sdk/google-model-id.js";
 import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
@@ -237,6 +232,19 @@ async function withGatewayLiveModelTimeout<T>(operation: Promise<T>, context: st
     timeoutLabel: "model",
     context,
   });
+}
+
+let gatewayConfigModulePromise: Promise<typeof import("../config/config.js")> | undefined;
+let authProfilesModulePromise: Promise<typeof import("../agents/auth-profiles.js")> | undefined;
+
+async function getGatewayConfigModule() {
+  gatewayConfigModulePromise ??= import("../config/config.js");
+  return await gatewayConfigModulePromise;
+}
+
+async function getAuthProfilesModule() {
+  authProfilesModulePromise ??= import("../agents/auth-profiles.js");
+  return await authProfilesModulePromise;
 }
 
 function logProgress(message: string): void {
@@ -1243,6 +1251,7 @@ async function sanitizeAuthConfig(params: {
   if (!auth) {
     return auth;
   }
+  const { ensureAuthProfileStore } = await getAuthProfilesModule();
   const store = ensureAuthProfileStore(params.agentDir, {
     allowKeychainPrompt: false,
   });
@@ -1303,7 +1312,7 @@ function buildMinimaxProviderOverride(params: {
 }
 
 async function runGatewayModelSuite(params: GatewayModelSuiteParams) {
-  clearRuntimeConfigSnapshot();
+  (await getGatewayConfigModule()).clearRuntimeConfigSnapshot();
   const runtimeEnv = enterProductionEnvForLiveRun();
   const previous = {
     configPath: process.env.OPENCLAW_CONFIG_PATH,
@@ -1335,6 +1344,7 @@ async function runGatewayModelSuite(params: GatewayModelSuiteParams) {
   const agentId = "dev";
 
   const hostAgentDir = resolveOpenClawAgentDir();
+  const { ensureAuthProfileStore, saveAuthProfileStore } = await getAuthProfilesModule();
   const hostStore = ensureAuthProfileStore(hostAgentDir, {
     allowKeychainPrompt: false,
   });
@@ -1997,7 +2007,7 @@ async function runGatewayModelSuite(params: GatewayModelSuiteParams) {
       logProgress(`[${params.label}] skipped all models (missing profiles)`);
     }
   } finally {
-    clearRuntimeConfigSnapshot();
+    (await getGatewayConfigModule()).clearRuntimeConfigSnapshot();
     restoreProductionEnvForLiveRun(runtimeEnv);
     client.stop();
     await server.close({ reason: "live test complete" });
@@ -2031,7 +2041,8 @@ describeLive("gateway live (dev agent, profile keys)", () => {
     "runs meaningful prompts across models with available keys",
     async () =>
       await withSuppressedGatewayLiveWarnings(async () => {
-        clearRuntimeConfigSnapshot();
+        const { loadConfig } = await getGatewayConfigModule();
+        (await getGatewayConfigModule()).clearRuntimeConfigSnapshot();
         const cfg = loadConfig();
         await ensureOpenClawModelsJson(cfg);
 
@@ -2163,7 +2174,8 @@ describeLive("gateway live (dev agent, profile keys)", () => {
     if (!ZAI_FALLBACK) {
       return;
     }
-    clearRuntimeConfigSnapshot();
+    const { loadConfig } = await getGatewayConfigModule();
+    (await getGatewayConfigModule()).clearRuntimeConfigSnapshot();
     const runtimeEnv = enterProductionEnvForLiveRun();
     const previous = {
       configPath: process.env.OPENCLAW_CONFIG_PATH,
@@ -2321,7 +2333,7 @@ describeLive("gateway live (dev agent, profile keys)", () => {
         throw new Error(`zai followup missing nonce: ${followupText}`);
       }
     } finally {
-      clearRuntimeConfigSnapshot();
+      (await getGatewayConfigModule()).clearRuntimeConfigSnapshot();
       restoreProductionEnvForLiveRun(runtimeEnv);
       client.stop();
       await server.close({ reason: "live test complete" });
