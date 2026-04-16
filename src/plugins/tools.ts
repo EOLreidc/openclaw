@@ -1,12 +1,11 @@
 import { normalizeToolName } from "../agents/tool-policy.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import { applyTestPluginDefaults, normalizePluginsConfig } from "./config-state.js";
-import { resolveRuntimePluginRegistry, type PluginLoadOptions } from "./loader.js";
 import {
-  getActivePluginRegistry,
-  getActivePluginRegistryKey,
-  getActivePluginRuntimeSubagentMode,
-} from "./runtime.js";
+  loadOpenClawPlugins,
+  resolveCompatibleRuntimePluginRegistry,
+  type PluginLoadOptions,
+} from "./loader.js";
 import {
   buildPluginRuntimeLoadOptions,
   resolvePluginRuntimeLoadContext,
@@ -58,14 +57,15 @@ function resolvePluginToolRegistry(params: {
   loadOptions: PluginLoadOptions;
   allowGatewaySubagentBinding?: boolean;
 }) {
-  if (
-    params.allowGatewaySubagentBinding &&
-    getActivePluginRegistryKey() &&
-    getActivePluginRuntimeSubagentMode() === "gateway-bindable"
-  ) {
-    return getActivePluginRegistry() ?? resolveRuntimePluginRegistry(params.loadOptions);
+  const compatible = resolveCompatibleRuntimePluginRegistry(params.loadOptions);
+  if (compatible) {
+    return compatible;
   }
-  return resolveRuntimePluginRegistry(params.loadOptions);
+  return loadOpenClawPlugins({
+    ...params.loadOptions,
+    activate: false,
+    cache: false,
+  });
 }
 
 export function resolvePluginTools(params: {
