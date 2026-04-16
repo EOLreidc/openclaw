@@ -338,6 +338,10 @@ describe("searchMemoryWiki", () => {
       cfg: createAppConfig(),
       agentId: "secondary",
     });
+    expect(manager.search).toHaveBeenCalledWith("secondary", {
+      maxResults: 10,
+      sessionKey: "agent:secondary:thread",
+    });
   });
 
   it("allows per-call corpus overrides without changing config defaults", async () => {
