@@ -16,9 +16,9 @@ type MemorySearchManagerResult = Awaited<
 >;
 
 type MemoryWikiFallbackRuntime = {
-  resolveMemoryWikiConfig: typeof import("@openclaw/memory-wiki/api.js")["resolveMemoryWikiConfig"];
-  searchMemoryWiki: typeof import("@openclaw/memory-wiki/api.js")["searchMemoryWiki"];
-  getMemoryWikiPage: typeof import("@openclaw/memory-wiki/api.js")["getMemoryWikiPage"];
+  resolveMemoryWikiConfig: (typeof import("@openclaw/memory-wiki/api.js"))["resolveMemoryWikiConfig"];
+  searchMemoryWiki: (typeof import("@openclaw/memory-wiki/api.js"))["searchMemoryWiki"];
+  getMemoryWikiPage: (typeof import("@openclaw/memory-wiki/api.js"))["getMemoryWikiPage"];
 };
 
 let memoryToolRuntimePromise: Promise<MemoryToolRuntime> | null = null;
@@ -49,9 +49,7 @@ function resolveMemoryWikiEntryConfig(cfg: OpenClawConfig): Record<string, unkno
     return undefined;
   }
   const config = entry.config;
-  return config && typeof config === "object" && !Array.isArray(config)
-    ? (config as Record<string, unknown>)
-    : undefined;
+  return config && typeof config === "object" && !Array.isArray(config) ? config : undefined;
 }
 
 async function searchMemoryWikiFallback(params: {
