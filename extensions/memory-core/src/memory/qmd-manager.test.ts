@@ -2278,6 +2278,91 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
+  it.each(["search", "vsearch"] as const)(
+    "falls back to qmd query when mcporter is bypassed and %s rejects unsupported flags",
+    async (searchMode) => {
+      cfg = {
+        ...cfg,
+        memory: {
+          backend: "qmd",
+          qmd: {
+            includeDefaultMemory: false,
+            searchMode,
+            update: { interval: "0s", debounceMs: 60_000, onBoot: false },
+            paths: [{ path: workspaceDir, pattern: "**/*.md", name: "workspace" }],
+            mcporter: { enabled: true, serverName: "qmd", startDaemon: false },
+          },
+        },
+      } as OpenClawConfig;
+
+      spawnMock.mockImplementation((cmd: string, args: string[]) => {
+        if (isMcporterCommand(cmd)) {
+          const child = createMockChild({ autoClose: false });
+          emitAndClose(child, "stdout", JSON.stringify({ results: [] }));
+          return child;
+        }
+        if (isQmdCommand(cmd) && args[0] === searchMode) {
+          const child = createMockChild({ autoClose: false });
+          emitAndClose(child, "stderr", "unknown flag: --json", 2);
+          return child;
+        }
+        if (isQmdCommand(cmd) && args[0] === "query") {
+          const child = createMockChild({ autoClose: false });
+          emitAndClose(
+            child,
+            "stdout",
+            JSON.stringify([
+              {
+                score: 0.7,
+                collection: "workspace-main",
+                file: "notes/welcome.md",
+                snippet: "fallback result",
+              },
+            ]),
+          );
+          return child;
+        }
+        return createMockChild();
+      });
+
+      const { manager, resolved } = await createManager();
+      const maxResults = resolved.qmd?.limits.maxResults;
+      if (!maxResults) {
+        throw new Error("qmd maxResults missing");
+      }
+
+      logWarnMock.mockClear();
+      await expect(
+        manager.search("test", { sessionKey: "agent:main:slack:dm:u123" }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          path: "notes/welcome.md",
+          snippet: "fallback result",
+          score: 0.7,
+        }),
+      ]);
+
+      const searchAndQueryCalls = spawnMock.mock.calls
+        .filter((call: unknown[]) => isQmdCommand(call[0] as string))
+        .map((call: unknown[]) => call[1] as string[])
+        .filter((args: string[]) => args[0] === searchMode || args[0] === "query");
+      expect(searchAndQueryCalls).toEqual([
+        [searchMode, "test", "--json", "-n", String(maxResults), "-c", "workspace-main"],
+        ["query", "test", "--json", "-n", String(maxResults), "-c", "workspace-main"],
+      ]);
+
+      const mcporterCalls = spawnMock.mock.calls.filter((call: unknown[]) =>
+        isMcporterCommand(call[0]),
+      );
+      expect(mcporterCalls).toHaveLength(0);
+      expect(logWarnMock).toHaveBeenCalledWith(
+        `qmd ${searchMode} does not support configured flags; retrying search with qmd query`,
+      );
+
+      await manager.close();
+    },
+  );
+
   it("uses QMD 1.1+ query tool with searches array via mcporter", async () => {
     cfg = {
       ...cfg,

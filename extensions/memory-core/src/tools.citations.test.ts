@@ -1,16 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  clearMemoryPluginState,
-  registerMemoryCorpusSupplement,
-} from "../../../src/plugins/memory-state.js";
 import type {
   MemoryWikiPluginConfig,
   ResolvedMemoryWikiConfig,
   WikiGetResult,
   WikiSearchResult,
 } from "@openclaw/memory-wiki/api.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  clearMemoryPluginState,
+  registerMemoryCorpusSupplement,
+} from "../../../src/plugins/memory-state.js";
 import {
   getMemorySearchManagerMockCalls,
   getReadAgentMemoryFileMockCalls,
@@ -24,10 +24,9 @@ import {
 
 const memoryWikiFallbackMocks = vi.hoisted(() => ({
   resolveMemoryWikiConfig: vi.fn<
-    (config: MemoryWikiPluginConfig | undefined) =>
-      | ResolvedMemoryWikiConfig
-      | MemoryWikiPluginConfig
-      | undefined
+    (
+      config: MemoryWikiPluginConfig | undefined,
+    ) => ResolvedMemoryWikiConfig | MemoryWikiPluginConfig | undefined
   >((config) => config),
   searchMemoryWiki: vi.fn<(..._args: any[]) => Promise<WikiSearchResult[]>>(async () => []),
   getMemoryWikiPage: vi.fn<(..._args: any[]) => Promise<WikiGetResult | null>>(async () => null),
@@ -409,6 +408,78 @@ describe("memory tools", () => {
     expect(getMemorySearchManagerMockCalls()).toBe(0);
   });
 
+  it("falls back to direct wiki search when memory-wiki is enabled with default config", async () => {
+    memoryWikiFallbackMocks.searchMemoryWiki.mockResolvedValue([
+      {
+        corpus: "wiki",
+        path: "sources/default.md",
+        title: "Default Source",
+        kind: "source",
+        score: 5,
+        snippet: "Default-config fallback",
+      },
+    ]);
+
+    const tool = createMemorySearchToolOrThrow({
+      config: asOpenClawConfig({
+        agents: { list: [{ id: "main", default: true }] },
+        plugins: { entries: { "memory-wiki": { enabled: true } } },
+      }),
+    });
+    const result = await tool.execute("call_wiki_fallback_default_config", {
+      query: "default",
+      corpus: "wiki",
+    });
+
+    expect(result.details).toMatchObject({
+      results: [
+        {
+          corpus: "wiki",
+          path: "sources/default.md",
+          title: "Default Source",
+          kind: "source",
+          score: 5,
+          snippet: "Default-config fallback",
+        },
+      ],
+    });
+    expect(memoryWikiFallbackMocks.resolveMemoryWikiConfig).toHaveBeenCalledWith({});
+    expect(memoryWikiFallbackMocks.searchMemoryWiki).toHaveBeenCalledTimes(1);
+    expect(getMemorySearchManagerMockCalls()).toBe(0);
+  });
+
+  it("does not double-search wiki fallback when memory-wiki supplement is already registered", async () => {
+    registerMemoryCorpusSupplement("memory-wiki", {
+      search: async () => [],
+      get: async () => null,
+    });
+    memoryWikiFallbackMocks.searchMemoryWiki.mockResolvedValue([
+      {
+        corpus: "wiki",
+        path: "sources/alpha.md",
+        title: "Alpha Source",
+        kind: "source",
+        score: 6,
+        snippet: "Alpha from fallback",
+      },
+    ]);
+
+    const tool = createMemorySearchToolOrThrow({
+      config: asOpenClawConfig({
+        agents: { list: [{ id: "main", default: true }] },
+        plugins: { entries: { "memory-wiki": { enabled: true, config: {} } } },
+      }),
+    });
+    const result = await tool.execute("call_wiki_no_double_search", {
+      query: "alpha",
+      corpus: "wiki",
+    });
+
+    expect(result.details).toMatchObject({ results: [] });
+    expect(memoryWikiFallbackMocks.searchMemoryWiki).not.toHaveBeenCalled();
+    expect(getMemorySearchManagerMockCalls()).toBe(0);
+  });
+
   it("falls back to direct wiki get when no corpus supplements are registered", async () => {
     memoryWikiFallbackMocks.getMemoryWikiPage.mockResolvedValue({
       corpus: "wiki",
@@ -442,6 +513,43 @@ describe("memory tools", () => {
       fromLine: 2,
       lineCount: 4,
     });
+    expect(memoryWikiFallbackMocks.getMemoryWikiPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to direct wiki get when memory-wiki is enabled with default config", async () => {
+    memoryWikiFallbackMocks.getMemoryWikiPage.mockResolvedValue({
+      corpus: "wiki",
+      path: "sources/default.md",
+      title: "Default Source",
+      kind: "source",
+      content: "Default wiki body",
+      fromLine: 1,
+      lineCount: 3,
+    });
+
+    const tool = createMemoryGetToolOrThrow(
+      asOpenClawConfig({
+        agents: { list: [{ id: "main", default: true }] },
+        plugins: { entries: { "memory-wiki": { enabled: true } } },
+      }),
+    );
+    const result = await tool.execute("call_get_wiki_fallback_default_config", {
+      path: "sources/default.md",
+      from: 1,
+      lines: 3,
+      corpus: "wiki",
+    });
+
+    expect(result.details).toEqual({
+      corpus: "wiki",
+      path: "sources/default.md",
+      title: "Default Source",
+      kind: "source",
+      text: "Default wiki body",
+      fromLine: 1,
+      lineCount: 3,
+    });
+    expect(memoryWikiFallbackMocks.resolveMemoryWikiConfig).toHaveBeenCalledWith({});
     expect(memoryWikiFallbackMocks.getMemoryWikiPage).toHaveBeenCalledTimes(1);
   });
 });

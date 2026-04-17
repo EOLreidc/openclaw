@@ -1,3 +1,4 @@
+import type { MemoryWikiPluginConfig } from "@openclaw/memory-wiki/api.js";
 import { Type } from "@sinclair/typebox";
 import {
   listMemoryCorpusSupplements,
@@ -40,7 +41,7 @@ async function loadMemoryWikiFallbackRuntime(): Promise<MemoryWikiFallbackRuntim
   return await memoryWikiFallbackRuntimePromise;
 }
 
-function resolveMemoryWikiEntryConfig(cfg: OpenClawConfig): Record<string, unknown> | undefined {
+function resolveMemoryWikiEntryConfig(cfg: OpenClawConfig): MemoryWikiPluginConfig | undefined {
   const entry = cfg.plugins?.entries?.["memory-wiki"];
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return undefined;
@@ -49,7 +50,12 @@ function resolveMemoryWikiEntryConfig(cfg: OpenClawConfig): Record<string, unkno
     return undefined;
   }
   const config = entry.config;
-  return config && typeof config === "object" && !Array.isArray(config) ? config : undefined;
+  if (config == null) {
+    return {} as MemoryWikiPluginConfig;
+  }
+  return typeof config === "object" && !Array.isArray(config)
+    ? (config as MemoryWikiPluginConfig)
+    : undefined;
 }
 
 async function searchMemoryWikiFallback(params: {
@@ -244,6 +250,9 @@ export async function searchMemoryCorpusSupplements(params: {
   if (supplements.length === 0) {
     return await searchMemoryWikiFallback(params);
   }
+  const hasMemoryWikiSupplement = supplements.some(
+    (registration) => registration.pluginId === "memory-wiki",
+  );
   const results = (
     await Promise.all(
       supplements.map(async (registration) => await registration.supplement.search(params)),
@@ -259,6 +268,9 @@ export async function searchMemoryCorpusSupplements(params: {
     .slice(0, Math.max(1, params.maxResults ?? 10));
   if (sorted.length > 0) {
     return sorted;
+  }
+  if (hasMemoryWikiSupplement) {
+    return [];
   }
   return await searchMemoryWikiFallback(params);
 }

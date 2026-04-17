@@ -1020,6 +1020,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       mcporterEnabled &&
       !explicitSearchTool &&
       (qmdSearchCommand === "search" || qmdSearchCommand === "vsearch");
+    const usedDirectQmdSearchPath = !mcporterEnabled || shouldBypassMcporter;
     const runSearchAttempt = async (
       allowMissingCollectionRepair: boolean,
     ): Promise<QmdQueryResult[]> => {
@@ -1093,7 +1094,7 @@ export class QmdMemoryManager implements MemorySearchManager {
           throw err;
         }
         if (
-          !mcporterEnabled &&
+          usedDirectQmdSearchPath &&
           qmdSearchCommand !== "query" &&
           this.isUnsupportedQmdOptionError(err)
         ) {
@@ -1117,7 +1118,7 @@ export class QmdMemoryManager implements MemorySearchManager {
             throw fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr));
           }
         }
-        const label = mcporterEnabled ? "mcporter/qmd" : `qmd ${qmdSearchCommand}`;
+        const label = usedDirectQmdSearchPath ? `qmd ${qmdSearchCommand}` : "mcporter/qmd";
         log.warn(`${label} failed: ${String(err)}`);
         throw err instanceof Error ? err : new Error(String(err));
       }
