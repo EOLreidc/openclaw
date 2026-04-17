@@ -5,6 +5,12 @@ import {
   clearMemoryPluginState,
   registerMemoryCorpusSupplement,
 } from "../../../src/plugins/memory-state.js";
+import type {
+  MemoryWikiPluginConfig,
+  ResolvedMemoryWikiConfig,
+  WikiGetResult,
+  WikiSearchResult,
+} from "@openclaw/memory-wiki/api.js";
 import {
   getMemorySearchManagerMockCalls,
   getReadAgentMemoryFileMockCalls,
@@ -17,16 +23,18 @@ import {
 } from "./memory-tool-manager-mock.js";
 
 const memoryWikiFallbackMocks = vi.hoisted(() => ({
-  resolveMemoryWikiConfig: vi.fn((config) => config),
-  searchMemoryWiki: vi.fn(async () => []),
-  getMemoryWikiPage: vi.fn(async () => null),
+  resolveMemoryWikiConfig: vi.fn<
+    (config: MemoryWikiPluginConfig | undefined) =>
+      | ResolvedMemoryWikiConfig
+      | MemoryWikiPluginConfig
+      | undefined
+  >((config) => config),
+  searchMemoryWiki: vi.fn<(..._args: any[]) => Promise<WikiSearchResult[]>>(async () => []),
+  getMemoryWikiPage: vi.fn<(..._args: any[]) => Promise<WikiGetResult | null>>(async () => null),
 }));
 
-vi.mock("../../memory-wiki/src/config.js", () => ({
+vi.mock("@openclaw/memory-wiki/api.js", () => ({
   resolveMemoryWikiConfig: memoryWikiFallbackMocks.resolveMemoryWikiConfig,
-}));
-
-vi.mock("../../memory-wiki/src/query.js", () => ({
   searchMemoryWiki: memoryWikiFallbackMocks.searchMemoryWiki,
   getMemoryWikiPage: memoryWikiFallbackMocks.getMemoryWikiPage,
 }));

@@ -786,6 +786,9 @@ importers:
 
   extensions/memory-core:
     devDependencies:
+      '@openclaw/memory-wiki':
+        specifier: workspace:*
+        version: link:../memory-wiki
       '@openclaw/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk

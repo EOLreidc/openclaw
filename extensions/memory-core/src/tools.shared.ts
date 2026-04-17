@@ -16,9 +16,9 @@ type MemorySearchManagerResult = Awaited<
 >;
 
 type MemoryWikiFallbackRuntime = {
-  resolveMemoryWikiConfig: typeof import("../../memory-wiki/src/config.js")["resolveMemoryWikiConfig"];
-  searchMemoryWiki: typeof import("../../memory-wiki/src/query.js")["searchMemoryWiki"];
-  getMemoryWikiPage: typeof import("../../memory-wiki/src/query.js")["getMemoryWikiPage"];
+  resolveMemoryWikiConfig: typeof import("@openclaw/memory-wiki/api.js")["resolveMemoryWikiConfig"];
+  searchMemoryWiki: typeof import("@openclaw/memory-wiki/api.js")["searchMemoryWiki"];
+  getMemoryWikiPage: typeof import("@openclaw/memory-wiki/api.js")["getMemoryWikiPage"];
 };
 
 let memoryToolRuntimePromise: Promise<MemoryToolRuntime> | null = null;
@@ -30,14 +30,13 @@ export async function loadMemoryToolRuntime(): Promise<MemoryToolRuntime> {
 }
 
 async function loadMemoryWikiFallbackRuntime(): Promise<MemoryWikiFallbackRuntime> {
-  memoryWikiFallbackRuntimePromise ??= Promise.all([
-    import("../../memory-wiki/src/config.js"),
-    import("../../memory-wiki/src/query.js"),
-  ]).then(([configModule, queryModule]) => ({
-    resolveMemoryWikiConfig: configModule.resolveMemoryWikiConfig,
-    searchMemoryWiki: queryModule.searchMemoryWiki,
-    getMemoryWikiPage: queryModule.getMemoryWikiPage,
-  }));
+  memoryWikiFallbackRuntimePromise ??= import("@openclaw/memory-wiki/api.js").then(
+    ({ resolveMemoryWikiConfig, searchMemoryWiki, getMemoryWikiPage }) => ({
+      resolveMemoryWikiConfig,
+      searchMemoryWiki,
+      getMemoryWikiPage,
+    }),
+  );
   return await memoryWikiFallbackRuntimePromise;
 }
 
