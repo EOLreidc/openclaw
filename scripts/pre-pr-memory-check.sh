@@ -33,7 +33,9 @@ run_step pnpm vitest run \
   extensions/memory-wiki/src/query.test.ts \
   extensions/memory-wiki/src/config.test.ts \
   extensions/memory-wiki/src/status.test.ts \
+  src/plugins/sdk-alias.test.ts \
   src/plugins/tools.optional.test.ts \
+  src/plugins/contracts/extension-package-project-boundaries.test.ts \
   test/extension-import-boundaries.test.ts \
   src/channels/plugins/contracts/channel-import-guardrails.test.ts
 
