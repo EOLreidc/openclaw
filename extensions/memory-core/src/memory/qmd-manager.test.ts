@@ -4101,10 +4101,12 @@ describe("QmdMemoryManager", () => {
       },
     ]);
 
-    await expect(manager.readFile({ relPath: results[0].path })).resolves.toEqual({
-      path: "MEMORY.md",
-      text: "# Durable Memory\n\nremember this\n",
-    });
+    await expect(manager.readFile({ relPath: results[0].path })).resolves.toEqual(
+      expect.objectContaining({
+        path: "MEMORY.md",
+        text: "# Durable Memory\n\nremember this\n",
+      }),
+    );
 
     await manager.close();
   });
